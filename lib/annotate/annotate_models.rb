@@ -261,6 +261,10 @@ module AnnotateModels
         info << get_foreign_key_info(klass, options)
       end
 
+      if options[:show_associations] && klass.table_exists?
+        info << get_association_info(klass, options)
+      end
+
       if options[:format_rdoc]
         info << "#--\n"
         info << "# #{END_MARK}\n"
@@ -324,6 +328,113 @@ module AnnotateModels
         end
       end
       return fk_info
+    end
+
+    def get_association_info(klass, options={})
+      if(options[:format_markdown])
+        assoc_header = <<-EOS
+#
+# ### Associations
+#
+        EOS
+        assoc_footer = <<-EOS
+#
+# ---
+#  Legend: (<-- has_one) (--> belongs_to) (<== has_many)
+#
+        EOS
+      else
+        assoc_header = <<-EOS
+#
+# Associations
+#
+        EOS
+        assoc_footer = <<-EOS
+#
+#  Legend: (<-- has_one) (--> belongs_to) (<== has_many)
+#
+      EOS
+      end
+
+      return "" unless klass.respond_to?(:reflections)
+
+      # Reflections returns: [ [:assoc_name, assoc_klass], [...], ...]
+      associations = klass.reflections
+      return "" if associations.empty?
+
+      assoc_body = ""
+      max_size = associations.collect{|name,assoc| name.size}.max + 1
+      associations.sort_by{|name,assoc| name}.each do |name,assoc|
+        other_model_name = if assoc.instance_of?(ActiveRecord::Reflection::ThroughReflection) then
+                             assoc.options[:source].try(:to_s).try(:classify)
+                           else
+                             assoc.options[:class_name].try(:to_s)
+                           end
+        # If there was no explicit class provided, then the name is used for class lookup.
+        other_model_name = name.to_s.classify if other_model_name.blank?
+        # Change the model name into the actual model, for later primary key lookup.
+        other_model = other_model_name.constantize
+
+        foreign_key = assoc.options[:foreign_key]
+
+        relation_type = assoc.macro
+
+        begin
+          relation_options = []
+
+          case assoc.options[:dependent]
+          when :destroy then
+            relation_options << "on_delete: cascade"
+          end
+
+          if assoc.instance_of?(ActiveRecord::Reflection::ThroughReflection) then
+            intermediate_table = assoc.options[:through].try(:to_s)
+            relation_options << "through: #{intermediate_table}"
+          end
+
+          relation_options_string = if relation_options.any? then
+                                      format("(%s)",relation_options.join(", "))
+                                    end
+        end
+
+        self_column = case assoc.macro
+                      when :has_many, :has_and_belongs_to_many then
+                        klass.primary_key
+                      when :has_one then
+                        klass.primary_key
+                      when :belongs_to
+                        foreign_key
+                      else
+                        raise "Unknown reflection macro: #{assoc.macro.inspect}."
+                      end
+
+        other_column = case assoc.macro
+                       when :has_many, :has_and_belongs_to_many, :has_one then
+                           foreign_key || other_model.primary_key
+                       when :belongs_to
+                         other_model.primary_key
+                       else
+                         raise "Unknown reflection macro: #{assoc.macro.inspect}."
+                       end
+
+        ref_info= case assoc.macro
+                  when :has_many, :has_and_belongs_to_many then
+                    format("%s <=%s= [%s(%s)]", self_column, relation_options_string, other_model.table_name, other_column)
+                  when :has_one then
+                    format("%s <-%s- %s(%s)", self_column, relation_options_string, other_model.table_name, other_column)
+                  when :belongs_to
+                    format("%s -%s-> %s(%s)", self_column, relation_options_string, other_model.table_name, other_column)
+                  else
+                    raise "Unknown reflection macro: #{assoc.macro.inspect}."
+                  end
+        if(options[:format_markdown])
+          assoc_body << sprintf("# * `%s`:\n#     * **`%s`**\n", name, ref_info)
+        else
+          assoc_body << sprintf("#  %-#{max_size}.#{max_size}s %s", name, "(#{ref_info})").rstrip + "\n"
+        end
+      end
+      assoc_info = assoc_header + assoc_body + assoc_footer
+      return assoc_info
     end
 
     # Add a schema block to a file. If the file already contains

@@ -28,7 +28,7 @@ module Annotate
     :show_indexes, :simple_indexes, :include_version, :exclude_tests,
     :exclude_fixtures, :exclude_factories, :ignore_model_sub_dir,
     :format_bare, :format_rdoc, :format_markdown, :sort, :force, :trace,
-    :timestamp, :exclude_serializers, :classified_sort, :show_foreign_keys,
+    :timestamp, :exclude_serializers, :classified_sort, :show_foreign_keys, :show_associations,
     :exclude_scaffolds, :exclude_controllers, :exclude_helpers, :ignore_unknown_models,
   ]
   OTHER_OPTIONS=[
